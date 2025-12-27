@@ -9,7 +9,7 @@ A pure Python implementation of the TOTP (Time-Based One-Time Password) algorith
 - ✅ Constant-time comparison (prevents timing attacks)
 - ✅ Supports SHA1, SHA256, SHA512
 - ✅ CSPRNG secret generation
-- ✅ 23 unit tests passed
+- ✅ 27 unit tests passed
 
 ## 📁 Project Structure
 

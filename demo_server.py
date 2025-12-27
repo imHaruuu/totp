@@ -2,10 +2,11 @@ import base64
 import io
 import os
 from flask import Flask, render_template_string, request, jsonify, session
-from totp import generate_totp, verify_totp, generate_secret
+from totp import generate_totp, verify_totp, generate_secret, ReplayProtector
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+app.secret_key = 'totp-demo-secret-key-for-development-only'
+replay_protector = ReplayProtector(ttl_seconds=90)
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -114,6 +115,7 @@ HTML_TEMPLATE = """
         .result { text-align: center; padding: 20px; border-radius: 10px; margin-top: 20px; font-size: 18px; font-weight: 600; display: none; }
         .result.success { background: rgba(0,255,150,0.2); color: #00ff96; display: block; }
         .result.error { background: rgba(255,50,50,0.2); color: #ff6b6b; display: block; }
+        .result.replay { background: rgba(255,165,0,0.2); color: #ffa500; display: block; }
         .current-otp { text-align: center; margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 10px; }
         .current-otp .otp { font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #00d2ff; font-family: monospace; }
         .timer { margin-top: 10px; font-size: 14px; color: #888; }
@@ -154,10 +156,14 @@ HTML_TEMPLATE = """
         <div class="step">
             <div class="step-header">
                 <div class="step-number">3</div>
-                <div class="step-title">Server OTP (for comparison)</div>
+                <div class="step-title">Valid OTPs (window=1)</div>
             </div>
             <div class="current-otp">
-                <div class="otp" id="server-otp">------</div>
+                <div style="display:flex;justify-content:space-around;margin-bottom:10px;">
+                    <div style="text-align:center;opacity:0.5;"><small>Previous</small><br><span id="prev-otp" style="font-family:monospace;">------</span></div>
+                    <div style="text-align:center;"><small>Current</small><br><span class="otp" id="server-otp">------</span></div>
+                    <div style="text-align:center;opacity:0.5;"><small>Next</small><br><span id="next-otp" style="font-family:monospace;">------</span></div>
+                </div>
                 <div class="timer">Expires in: <span id="countdown">30</span>s</div>
                 <div class="timer-bar"><div class="timer-bar-fill" id="timer-bar"></div></div>
             </div>
@@ -168,6 +174,8 @@ HTML_TEMPLATE = """
         function updateOTP() {
             fetch('/api/current-otp').then(r => r.json()).then(data => {
                 document.getElementById('server-otp').textContent = data.otp;
+                document.getElementById('prev-otp').textContent = data.prev_otp;
+                document.getElementById('next-otp').textContent = data.next_otp;
                 document.getElementById('countdown').textContent = data.remaining;
                 document.getElementById('timer-bar').style.width = (data.remaining / 30 * 100) + '%';
             });
@@ -184,8 +192,16 @@ HTML_TEMPLATE = """
                 body: JSON.stringify({otp: otp})
             }).then(r => r.json()).then(data => {
                 const result = document.getElementById('result');
-                result.className = data.valid ? 'result success' : 'result error';
-                result.textContent = data.valid ? 'Verification successful!' : 'Invalid OTP code!';
+                if (data.valid) {
+                    result.className = 'result success';
+                    result.textContent = 'Verification successful!';
+                } else if (data.error === 'replay') {
+                    result.className = 'result replay';
+                    result.textContent = '⚠️ Replay Attack Detected! This OTP was already used.';
+                } else {
+                    result.className = 'result error';
+                    result.textContent = 'Invalid OTP code!';
+                }
             });
         });
         
@@ -236,8 +252,18 @@ def current_otp():
     secret = get_or_create_secret()
     current_time = int(time.time())
     otp = generate_totp(secret, timestamp=current_time, digits=6)
+    prev_otp = generate_totp(secret, timestamp=current_time - 30, digits=6)
+    next_otp = generate_totp(secret, timestamp=current_time + 30, digits=6)
     remaining = 30 - (current_time % 30)
-    return jsonify({'otp': otp, 'remaining': remaining, 'timestamp': current_time})
+    secret_hash = base64.b32encode(secret).decode()[:8]
+    return jsonify({
+        'otp': otp,
+        'prev_otp': prev_otp, 
+        'next_otp': next_otp,
+        'remaining': remaining,
+        'timestamp': current_time,
+        'secret_prefix': secret_hash
+    })
 
 
 @app.route('/api/verify', methods=['POST'])
@@ -247,9 +273,28 @@ def verify():
     otp = data.get('otp', '')
     secret = get_or_create_secret()
     current_time = int(time.time())
-    is_valid = verify_totp(secret=secret, otp=otp, timestamp=current_time, digits=6, window=1)
-    print(f"[VERIFY] timestamp={current_time}, valid={is_valid}")
-    return jsonify({'valid': is_valid})
+    
+    user_id = session.get('secret', 'anonymous')
+    
+    is_valid = verify_totp(
+        secret=secret,
+        otp=otp,
+        timestamp=current_time,
+        digits=6,
+        window=1
+    )
+    
+    if not is_valid:
+        print(f"[VERIFY] timestamp={current_time}, INVALID OTP")
+        return jsonify({'valid': False, 'error': 'invalid'})
+    
+    if replay_protector.is_used(user_id, otp):
+        print(f"[VERIFY] timestamp={current_time}, REPLAY ATTACK DETECTED!")
+        return jsonify({'valid': False, 'error': 'replay'})
+    
+    replay_protector.mark_used(user_id, otp)
+    print(f"[VERIFY] timestamp={current_time}, VALID")
+    return jsonify({'valid': True, 'error': None})
 
 
 if __name__ == '__main__':

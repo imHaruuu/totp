@@ -4,7 +4,7 @@ import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from totp import generate_totp, verify_totp, generate_secret
+from totp import generate_totp, verify_totp, generate_secret, ReplayProtector, verify_totp_with_replay_protection
 
 
 def print_banner():
@@ -44,7 +44,8 @@ def demo_standalone():
 
 def demo_ga_compatible():
     print_banner()
-    print("\n[Mode: Google Authenticator Compatible]\n")
+    print("\n[Mode: Google Authenticator Compatible]")
+    print("[Replay Attack Protection: ENABLED]\n")
     
     print("1. Create new secret\n2. Enter existing secret (Base32)")
     choice = input("\nChoice (1/2): ").strip()
@@ -65,6 +66,8 @@ def demo_ga_compatible():
     print(f"Secret Key: {secret_b32}")
     print(f"OTPAuth URI: otpauth://totp/TOTP-Demo:demo?secret={secret_b32}&issuer=TOTP-Demo")
     print("=" * 50)
+    
+    replay_protector = ReplayProtector(ttl_seconds=90)
     
     input("\nPress Enter when added to Google Authenticator...")
     print("\nDEMO (Ctrl+C to verify)")
@@ -87,10 +90,24 @@ def demo_ga_compatible():
             
             current_time = int(time.time())
             server_otp = generate_totp(secret, timestamp=current_time, digits=6)
-            is_valid = verify_totp(secret, otp_input, timestamp=current_time, digits=6, window=1)
+            
+            is_valid, error = verify_totp_with_replay_protection(
+                protector=replay_protector,
+                user_id="demo_user",
+                secret=secret,
+                otp=otp_input,
+                timestamp=current_time,
+                digits=6,
+                window=1
+            )
             
             print(f"  Server: {server_otp}, Your: {otp_input}")
-            print(f"  Result: {'MATCH' if is_valid else 'INVALID'}")
+            if is_valid:
+                print("  Result: ✅ VALID")
+            elif error == "replay":
+                print("  Result: ⚠️  REPLAY ATTACK DETECTED! This OTP was already used.")
+            else:
+                print("  Result: ❌ INVALID")
         
         print("\nDemo finished.")
 

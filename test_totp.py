@@ -3,6 +3,7 @@ import time
 from totp import (
     generate_totp, verify_totp, generate_secret, _encode_counter, _dynamic_truncate,
     RFC_TEST_SECRET_SHA1, RFC_TEST_SECRET_SHA256, RFC_TEST_SECRET_SHA512,
+    ReplayProtector, verify_totp_with_replay_protection,
 )
 
 
@@ -112,6 +113,62 @@ class TestAdditionalRFC6238Vectors:
 
     def test_different_time_steps(self):
         assert generate_totp(RFC_TEST_SECRET_SHA1, timestamp=59, digits=8) != generate_totp(RFC_TEST_SECRET_SHA1, timestamp=60, digits=8)
+
+
+class TestReplayProtection:
+    def test_same_otp_rejected_on_reuse(self):
+        protector = ReplayProtector(ttl_seconds=90)
+        secret = RFC_TEST_SECRET_SHA1
+        otp = generate_totp(secret, timestamp=59, digits=6)
+        
+        is_valid, error = verify_totp_with_replay_protection(
+            protector, "user1", secret, otp, timestamp=59, digits=6
+        )
+        assert is_valid is True
+        assert error == ""
+        
+        is_valid, error = verify_totp_with_replay_protection(
+            protector, "user1", secret, otp, timestamp=59, digits=6
+        )
+        assert is_valid is False
+        assert error == "replay"
+    
+    def test_otp_cleanup_after_expiry(self):
+        protector = ReplayProtector(ttl_seconds=1)
+        protector.mark_used("user1", "123456")
+        
+        assert protector.is_used("user1", "123456") is True
+        
+        time.sleep(1.1)
+        
+        assert protector.is_used("user1", "123456") is False
+    
+    def test_different_users_same_otp_allowed(self):
+        protector = ReplayProtector(ttl_seconds=90)
+        secret = RFC_TEST_SECRET_SHA1
+        otp = generate_totp(secret, timestamp=59, digits=6)
+        
+        is_valid, _ = verify_totp_with_replay_protection(
+            protector, "user1", secret, otp, timestamp=59, digits=6
+        )
+        assert is_valid is True
+        
+        is_valid, _ = verify_totp_with_replay_protection(
+            protector, "user2", secret, otp, timestamp=59, digits=6
+        )
+        assert is_valid is True
+    
+    def test_invalid_otp_not_marked_as_used(self):
+        protector = ReplayProtector(ttl_seconds=90)
+        secret = RFC_TEST_SECRET_SHA1
+        
+        is_valid, error = verify_totp_with_replay_protection(
+            protector, "user1", secret, "000000", timestamp=59, digits=6
+        )
+        assert is_valid is False
+        assert error == "invalid"
+        
+        assert protector.is_used("user1", "000000") is False
 
 
 if __name__ == '__main__':

@@ -77,6 +77,63 @@ def generate_secret(length: int = 20) -> bytes:
     return secrets.token_bytes(length)
 
 
+class ReplayProtector:
+    def __init__(self, ttl_seconds: int = 90):
+        self._used_otps: dict[tuple[str, str], float] = {}
+        self._ttl = ttl_seconds
+    
+    def is_used(self, user_id: str, otp: str) -> bool:
+        self.cleanup()
+        return (user_id, otp) in self._used_otps
+    
+    def mark_used(self, user_id: str, otp: str) -> None:
+        expiry = time.time() + self._ttl
+        self._used_otps[(user_id, otp)] = expiry
+    
+    def cleanup(self) -> None:
+        current_time = time.time()
+        expired_keys = [
+            key for key, expiry in self._used_otps.items()
+            if current_time > expiry
+        ]
+        for key in expired_keys:
+            del self._used_otps[key]
+    
+    def clear(self) -> None:
+        self._used_otps.clear()
+
+
+def verify_totp_with_replay_protection(
+    protector: ReplayProtector,
+    user_id: str,
+    secret: bytes,
+    otp: str,
+    timestamp: int = None,
+    time_step: int = 30,
+    digits: int = 6,
+    hash_algorithm: str = 'sha1',
+    window: int = 1
+) -> tuple[bool, str]:
+    is_valid = verify_totp(
+        secret=secret,
+        otp=otp,
+        timestamp=timestamp,
+        time_step=time_step,
+        digits=digits,
+        hash_algorithm=hash_algorithm,
+        window=window
+    )
+    
+    if not is_valid:
+        return False, "invalid"
+    
+    if protector.is_used(user_id, otp):
+        return False, "replay"
+    
+    protector.mark_used(user_id, otp)
+    return True, ""
+
+
 RFC_TEST_SECRET_SHA1 = b'12345678901234567890'
 RFC_TEST_SECRET_SHA256 = b'12345678901234567890123456789012'
 RFC_TEST_SECRET_SHA512 = b'1234567890123456789012345678901234567890123456789012345678901234'
