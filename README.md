@@ -52,19 +52,73 @@ python demo_client.py
 
 ## 📖 Usage
 
+### Basic Usage
+
 ```python
 from totp import generate_totp, verify_totp, generate_secret
 
-# Generate secret
+# Generate a cryptographically secure secret (20 bytes default)
 secret = generate_secret()
 
-# Generate OTP
+# Generate OTP for current time
 otp = generate_totp(secret)
-print(f"OTP: {otp}")
+print(f"OTP: {otp}")  # e.g., "123456"
 
-# Verify OTP
+# Verify OTP (with ±1 time step window by default)
 is_valid = verify_totp(secret, otp)
-print(f"Valid: {is_valid}")
+print(f"Valid: {is_valid}")  # True
+```
+
+### Custom Parameters
+
+```python
+# Generate 8-digit OTP with SHA256
+otp = generate_totp(
+    secret=secret,
+    digits=8,              # 6 or 8 digits
+    time_step=30,          # Time step in seconds
+    hash_algorithm='sha256'  # sha1, sha256, or sha512
+)
+
+# Verify with custom window (±2 time steps = ±60 seconds)
+is_valid = verify_totp(secret, otp, window=2)
+```
+
+### Replay Attack Protection
+
+```python
+from totp import ReplayProtector, verify_totp_with_replay_protection
+
+# Create a replay protector (TTL = 90 seconds default)
+protector = ReplayProtector(ttl_seconds=90)
+
+# Verify OTP with replay protection
+is_valid, reason = verify_totp_with_replay_protection(
+    protector=protector,
+    user_id="user@example.com",
+    secret=secret,
+    otp=otp
+)
+
+if is_valid:
+    print("✅ OTP verified successfully")
+elif reason == "replay":
+    print("🔄 OTP already used (replay attack detected)")
+elif reason == "invalid":
+    print("❌ Invalid OTP")
+```
+
+### Generate QR Code URI (for Google Authenticator)
+
+```python
+import base64
+
+def get_provisioning_uri(secret: bytes, account: str, issuer: str) -> str:
+    secret_b32 = base64.b32encode(secret).decode('utf-8').rstrip('=')
+    return f"otpauth://totp/{issuer}:{account}?secret={secret_b32}&issuer={issuer}"
+
+uri = get_provisioning_uri(secret, "user@example.com", "MyApp")
+# Use this URI to generate a QR code
 ```
 
 ## 🧪 RFC 6238 Test Vectors
