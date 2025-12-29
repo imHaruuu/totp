@@ -1,11 +1,12 @@
 # Requirements for TOTP Project
 
-# Core (included in Python standard library)
-# hmac, hashlib, struct, time, secrets - no install needed
-
 # Testing
 pytest>=7.0.0
 
 # Demo Server
 flask>=3.0.0
 qrcode[pil]>=7.0.0
+
+# Desktop Client (GUI)
+customtkinter>=5.0.0
+opencv-python>=4.0.0

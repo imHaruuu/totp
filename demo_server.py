@@ -241,7 +241,7 @@ def get_or_create_secret():
 def index():
     secret = get_or_create_secret()
     secret_b32 = base64.b32encode(secret).decode().rstrip('=')
-    uri = f"otpauth://totp/TOTP-Demo:demo@example.com?secret={secret_b32}&issuer=TOTP-Demo&algorithm=SHA1&digits=6&period=30"
+    uri = f"otpauth://totp/TOTP-Demo:trial@imharuuu.dev?secret={secret_b32}&issuer=imharuuu&algorithm=SHA1&digits=6&period=30"
     qr_code = generate_qr_code(uri)
     return render_template_string(HTML_TEMPLATE, qr_code=qr_code, secret_b32=secret_b32)
 

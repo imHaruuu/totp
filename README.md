@@ -45,10 +45,15 @@ python demo_server.py
 ```
 Open browser → http://localhost:5000 → Scan QR with Google Authenticator
 
-**Option B: CLI Client**
+**Option B: Desktop Client (GUI)**
 ```bash
 python demo_client.py
 ```
+Features:
+- Paste Base32 secret or `otpauth://` URI
+- **Scan QR Code** from image file
+- Real-time OTP generation with countdown
+- Auto-extracts Issuer/Account metadata from URI
 
 ## 📖 Usage
 
